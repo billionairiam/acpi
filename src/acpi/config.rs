@@ -19,6 +19,14 @@ pub struct PlatformConfig {
     pub ioapic_gsi_base: u32,
     pub pci_irq_base: u32,
     pub has_hpet: bool,
+    pub has_mcfg: bool,
+    pub tpm_kind: Option<TpmKind>,
+    pub has_numa: bool,
+    pub has_slit: bool,
+    pub has_hmat: bool,
+    pub iommu_kind: Option<IommuKind>,
+    pub nvdimm_enabled: bool,
+    pub cxl_enabled: bool,
     pub pci_ecam_base: u64,
     pub pci_segment: u16,
     pub pci_bus_start: u8,
@@ -27,6 +35,19 @@ pub struct PlatformConfig {
     pub pci_root_uid: u8,
     pub pci_devices: Vec<PciDeviceConfig>,
     pub compat_lengths: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TpmKind {
+    Tcpa,
+    Tpm2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IommuKind {
+    Dmar,
+    Ivrs,
+    Viot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +90,14 @@ impl PlatformConfig {
             ioapic_gsi_base: 0,
             pci_irq_base: 16,
             has_hpet: false,
+            has_mcfg: true,
+            tpm_kind: None,
+            has_numa: false,
+            has_slit: false,
+            has_hmat: false,
+            iommu_kind: None,
+            nvdimm_enabled: false,
+            cxl_enabled: false,
             pci_ecam_base: 0xb000_0000,
             pci_segment: 0,
             pci_bus_start: 0,

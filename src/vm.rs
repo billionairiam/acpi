@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::acpi::config::{PciDeviceConfig, PlatformConfig};
+use crate::acpi::config::{IommuKind, PciDeviceConfig, PlatformConfig, TpmKind};
 
 #[derive(Debug, Deserialize)]
 pub struct VmConfig {
@@ -27,12 +27,41 @@ impl VmConfig {
         let path = path.as_ref();
         let text = fs::read_to_string(path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-        toml::from_str(&text).map_err(|error| format!("failed to parse {}: {error}", path.display()))
+        toml::from_str(&text)
+            .map_err(|error| format!("failed to parse {}: {error}", path.display()))
     }
 
     pub fn platform_config(&self) -> PlatformConfig {
         let mut config = PlatformConfig::intel_tdx_q35(self.cpu.topology.cpus);
         config.has_hpet = self.machine.properties.bool("hpet").unwrap_or(false);
+        config.has_mcfg = self.machine.properties.bool("mcfg").unwrap_or(true);
+        config.has_numa = self.machine.properties.bool("numa").unwrap_or(false);
+        config.has_slit = self
+            .machine
+            .properties
+            .bool("slit")
+            .unwrap_or(config.has_numa);
+        config.has_hmat = self.machine.properties.bool("hmat").unwrap_or(false);
+        config.tpm_kind = self
+            .machine
+            .properties
+            .tpm_kind()
+            .or_else(|| self.devices.iter().find_map(|device| device.tpm_kind()));
+        config.iommu_kind = self
+            .machine
+            .properties
+            .iommu_kind()
+            .or_else(|| self.devices.iter().find_map(|device| device.iommu_kind()));
+        config.nvdimm_enabled = self
+            .machine
+            .properties
+            .bool("nvdimm")
+            .unwrap_or_else(|| self.devices.iter().any(|device| device.is_nvdimm()));
+        config.cxl_enabled = self
+            .machine
+            .properties
+            .bool("cxl")
+            .unwrap_or_else(|| self.devices.iter().any(|device| device.is_cxl()));
         config.pci_devices = self
             .devices
             .iter()
@@ -157,12 +186,40 @@ impl MachineProperties {
         }
     }
 
+    fn string(&self, key: &str) -> Option<&str> {
+        match self.values.get(key) {
+            Some(toml::Value::String(value)) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    fn tpm_kind(&self) -> Option<TpmKind> {
+        match self.string("tpm")? {
+            "1.2" | "tcpa" | "tpm12" => Some(TpmKind::Tcpa),
+            "2.0" | "tpm2" => Some(TpmKind::Tpm2),
+            _ => None,
+        }
+    }
+
+    fn iommu_kind(&self) -> Option<IommuKind> {
+        match self.string("iommu")? {
+            "intel" | "dmar" => Some(IommuKind::Dmar),
+            "amd" | "ivrs" => Some(IommuKind::Ivrs),
+            "virtio" | "viot" => Some(IommuKind::Viot),
+            _ => None,
+        }
+    }
+
     fn to_qemu_pairs(&self) -> Vec<String> {
         let mut pairs = Vec::new();
         for (key, value) in &self.values {
             let rendered = match value {
                 toml::Value::Boolean(value) => {
-                    if *value { "on".to_string() } else { "off".to_string() }
+                    if *value {
+                        "on".to_string()
+                    } else {
+                        "off".to_string()
+                    }
                 }
                 toml::Value::String(value) => value.clone(),
                 toml::Value::Integer(value) => value.to_string(),
@@ -233,6 +290,34 @@ impl Device {
         parse_qemu_addr(addr)
     }
 
+    fn tpm_kind(&self) -> Option<TpmKind> {
+        let driver = self.driver.as_str();
+        if driver.contains("tpm-tis") || driver.contains("tpm-spapr") {
+            Some(TpmKind::Tcpa)
+        } else if driver.contains("tpm-crb") {
+            Some(TpmKind::Tpm2)
+        } else {
+            None
+        }
+    }
+
+    fn iommu_kind(&self) -> Option<IommuKind> {
+        match self.driver.as_str() {
+            "intel-iommu" => Some(IommuKind::Dmar),
+            "amd-iommu" => Some(IommuKind::Ivrs),
+            "virtio-iommu-pci" => Some(IommuKind::Viot),
+            _ => None,
+        }
+    }
+
+    fn is_nvdimm(&self) -> bool {
+        self.driver.contains("nvdimm")
+    }
+
+    fn is_cxl(&self) -> bool {
+        self.driver.contains("cxl")
+    }
+
     fn to_qemu_value(&self) -> String {
         let mut parts = vec![self.driver.clone()];
         for (key, value) in &self.props {
@@ -277,6 +362,7 @@ fn parse_u8_any_radix(text: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::VmConfig;
+    use crate::acpi::config::{IommuKind, TpmKind};
 
     #[test]
     fn renders_machine_properties_and_devices() {
@@ -331,7 +417,11 @@ mod tests {
         assert!(args.contains("-machine q35,hpet=off,kernel_irqchip=split,smm=off"));
         assert!(args.contains("-serial stdio"));
         assert!(args.contains("-netdev user,id=net0"));
-        assert!(args.contains("-device virtio-net-pci,addr=0x02,id=net0dev,multifunction=off,netdev=net0"));
+        assert!(
+            args.contains(
+                "-device virtio-net-pci,addr=0x02,id=net0dev,multifunction=off,netdev=net0"
+            )
+        );
     }
 
     #[test]
@@ -441,5 +531,60 @@ mod tests {
         assert_eq!(platform.pci_devices.len(), 1);
         assert_eq!(platform.pci_devices[0].bus.as_deref(), Some("rp0"));
         assert!(!platform.pci_devices[0].is_root_bus_device());
+    }
+
+    #[test]
+    fn detects_optional_acpi_features() {
+        let config: VmConfig = toml::from_str(
+            r#"
+            [qemu]
+            binary = "/usr/bin/qemu-system-x86_64"
+
+            [platform]
+            machine = "q35"
+            bios = "/usr/share/ovmf/OVMF.fd"
+            accel = "kvm"
+
+            [cpu]
+            model = "host"
+
+            [cpu.topology]
+            cpus = 16
+
+            [memory]
+            size = "2G"
+
+            [machine.properties]
+            hpet = true
+            mcfg = false
+            numa = true
+            slit = true
+            hmat = true
+
+            [[devices]]
+            driver = "tpm-crb"
+
+            [[devices]]
+            driver = "virtio-iommu-pci"
+
+            [[devices]]
+            driver = "nvdimm"
+
+            [[devices]]
+            driver = "cxl-type3"
+            "#,
+        )
+        .unwrap();
+
+        let platform = config.platform_config();
+        assert!(platform.has_hpet);
+        assert!(!platform.has_mcfg);
+        assert!(platform.has_numa);
+        assert!(platform.has_slit);
+        assert!(platform.has_hmat);
+        assert_eq!(platform.tpm_kind, Some(TpmKind::Tpm2));
+        assert_eq!(platform.iommu_kind, Some(IommuKind::Viot));
+        assert!(platform.nvdimm_enabled);
+        assert!(platform.cxl_enabled);
     }
 }

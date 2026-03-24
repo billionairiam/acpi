@@ -35,49 +35,49 @@ pub fn build_dsdt(config: &PlatformConfig) -> Vec<u8> {
 
 fn pci0_children(config: &PlatformConfig) -> Vec<AmlNode> {
     let mut children = vec![
-            AmlNode::Name {
-                name: "_HID".to_string(),
-                value: AmlValue::EisaId("PNP0A08"),
-            },
-            AmlNode::Name {
-                name: "_CID".to_string(),
-                value: AmlValue::EisaId("PNP0A03"),
-            },
-            AmlNode::Name {
-                name: "_UID".to_string(),
-                value: AmlValue::Integer(config.pci_root_uid.into()),
-            },
-            AmlNode::Name {
-                name: "_ADR".to_string(),
-                value: AmlValue::Integer(0),
-            },
-            AmlNode::Name {
-                name: "_SEG".to_string(),
-                value: AmlValue::Integer(config.pci_segment.into()),
-            },
-            AmlNode::Name {
-                name: "_BBN".to_string(),
-                value: AmlValue::Integer(config.pci_bus_start.into()),
-            },
-            AmlNode::Name {
-                name: "_STA".to_string(),
-                value: AmlValue::Integer(0x0f),
-            },
-            AmlNode::Name {
-                name: "_CRS".to_string(),
-                value: AmlValue::Buffer(resource_template(config)),
-            },
-            AmlNode::Name {
-                name: "_PRT".to_string(),
-                value: AmlValue::Package(build_pci_routing(config)),
-            },
-            AmlNode::Method {
-                name: "_OSC".to_string(),
-                args: 4,
-                serialized: false,
-                body: vec![AmlNode::Return(AmlValue::Arg(3))],
-            },
-        ];
+        AmlNode::Name {
+            name: "_HID".to_string(),
+            value: AmlValue::EisaId("PNP0A08"),
+        },
+        AmlNode::Name {
+            name: "_CID".to_string(),
+            value: AmlValue::EisaId("PNP0A03"),
+        },
+        AmlNode::Name {
+            name: "_UID".to_string(),
+            value: AmlValue::Integer(config.pci_root_uid.into()),
+        },
+        AmlNode::Name {
+            name: "_ADR".to_string(),
+            value: AmlValue::Integer(0),
+        },
+        AmlNode::Name {
+            name: "_SEG".to_string(),
+            value: AmlValue::Integer(config.pci_segment.into()),
+        },
+        AmlNode::Name {
+            name: "_BBN".to_string(),
+            value: AmlValue::Integer(config.pci_bus_start.into()),
+        },
+        AmlNode::Name {
+            name: "_STA".to_string(),
+            value: AmlValue::Integer(0x0f),
+        },
+        AmlNode::Name {
+            name: "_CRS".to_string(),
+            value: AmlValue::Buffer(resource_template(config)),
+        },
+        AmlNode::Name {
+            name: "_PRT".to_string(),
+            value: AmlValue::Package(build_pci_routing(config)),
+        },
+        AmlNode::Method {
+            name: "_OSC".to_string(),
+            args: 4,
+            serialized: false,
+            body: vec![AmlNode::Return(AmlValue::Arg(3))],
+        },
+    ];
     children.extend(build_pci_device_nodes(config));
     children
 }
@@ -358,20 +358,22 @@ mod tests {
     #[test]
     fn dsdt_contains_named_pci_device_node() {
         let mut config = PlatformConfig::intel_tdx_q35(16);
-        config
-            .pci_devices
-            .push(PciDeviceConfig {
-                driver: "virtio-net-pci".to_string(),
-                id: Some("net0dev".to_string()),
-                bus: Some("pcie.0".to_string()),
-                devfn: 0x10,
-            });
+        config.pci_devices.push(PciDeviceConfig {
+            driver: "virtio-net-pci".to_string(),
+            id: Some("net0dev".to_string()),
+            bus: Some("pcie.0".to_string()),
+            devfn: 0x10,
+        });
         let dsdt = build_dsdt(&config);
         assert!(dsdt.windows(4).any(|window| window == b"S10_"));
-        assert!(dsdt.windows("net0dev".len()).any(|window| window == b"net0dev"));
-        assert!(dsdt
-            .windows("Virtio Network Device".len())
-            .any(|window| window == b"Virtio Network Device"));
+        assert!(
+            dsdt.windows("net0dev".len())
+                .any(|window| window == b"net0dev")
+        );
+        assert!(
+            dsdt.windows("Virtio Network Device".len())
+                .any(|window| window == b"Virtio Network Device")
+        );
         assert!(dsdt.windows(4).any(|window| window == b"_UID"));
     }
 
@@ -394,12 +396,14 @@ mod tests {
         let dsdt = build_dsdt(&config);
         assert!(dsdt.windows(4).any(|window| window == b"S18_"));
         assert!(dsdt.windows(4).any(|window| window == b"S20_"));
-        assert!(dsdt
-            .windows("Virtio Block Device".len())
-            .any(|window| window == b"Virtio Block Device"));
-        assert!(dsdt
-            .windows("Virtio SCSI Controller".len())
-            .any(|window| window == b"Virtio SCSI Controller"));
+        assert!(
+            dsdt.windows("Virtio Block Device".len())
+                .any(|window| window == b"Virtio Block Device")
+        );
+        assert!(
+            dsdt.windows("Virtio SCSI Controller".len())
+                .any(|window| window == b"Virtio SCSI Controller")
+        );
         assert!(dsdt.windows(5).any(|window| window == b"block"));
         assert!(dsdt.windows(7).any(|window| window == b"storage"));
     }
@@ -415,6 +419,10 @@ mod tests {
         });
 
         let dsdt = build_dsdt(&config);
-        assert!(!dsdt.windows("net1dev".len()).any(|window| window == b"net1dev"));
+        assert!(
+            !dsdt
+                .windows("net1dev".len())
+                .any(|window| window == b"net1dev")
+        );
     }
 }

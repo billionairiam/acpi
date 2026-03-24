@@ -66,7 +66,10 @@ fn write_blob(blob: &[u8], rsdp: &[u8], path: &str) {
 }
 
 fn print_layout(built: &acpi::BuiltBlob) {
-    for name in ["DSDT", "FACP", "APIC", "HPET", "MCFG", "WAET", "RSDT"] {
+    for name in [
+        "DSDT", "FACP", "APIC", "HPET", "TCPA", "TPM2", "SRAT", "SLIT", "HMAT", "MCFG", "DMAR",
+        "IVRS", "VIOT", "NFIT", "CEDT", "WAET", "RSDT",
+    ] {
         if let Some(layout) = built.layout.get(name) {
             let lower = name.to_ascii_lowercase();
             println!(

@@ -84,7 +84,11 @@ pub fn build_fadt(config: &PlatformConfig, dsdt_address: u64) -> Vec<u8> {
     let mut body = vec![0u8; FADT_BODY_LEN];
     patch_u32(&mut body, FADT_OFFSET_DSDT, dsdt_address as u32);
     patch_u16(&mut body, FADT_OFFSET_SCI_INT, config.sci_irq);
-    patch_u32(&mut body, FADT_OFFSET_PM1A_EVT_BLK, u32::from(config.pm_io_base));
+    patch_u32(
+        &mut body,
+        FADT_OFFSET_PM1A_EVT_BLK,
+        u32::from(config.pm_io_base),
+    );
     patch_u32(
         &mut body,
         FADT_OFFSET_PM1A_CNT_BLK,
@@ -114,11 +118,19 @@ pub fn build_fadt(config: &PlatformConfig, dsdt_address: u64) -> Vec<u8> {
             | FADT_FLAG_RESET_REG_SUP
             | FADT_FLAG_USE_PLATFORM_CLOCK,
     );
-    patch_gas(&mut body, FADT_OFFSET_RESET_REG, Gas::io(8, config.reset_io_base));
+    patch_gas(
+        &mut body,
+        FADT_OFFSET_RESET_REG,
+        Gas::io(8, config.reset_io_base),
+    );
     body[FADT_OFFSET_RESET_VALUE] = config.reset_value;
     patch_u64(&mut body, FADT_OFFSET_X_FIRMWARE_CTRL, 0);
     patch_u64(&mut body, FADT_OFFSET_X_DSDT, dsdt_address);
-    patch_gas(&mut body, FADT_OFFSET_X_PM1A_EVT_BLK, Gas::io(32, config.pm_io_base));
+    patch_gas(
+        &mut body,
+        FADT_OFFSET_X_PM1A_EVT_BLK,
+        Gas::io(32, config.pm_io_base),
+    );
     patch_gas(
         &mut body,
         FADT_OFFSET_X_PM1A_CNT_BLK,

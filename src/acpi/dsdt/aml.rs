@@ -143,7 +143,10 @@ fn encode_name_string(name: &str, out: &mut Vec<u8>) {
         out.push(b'\\');
         path = rest;
     }
-    let segments: Vec<&str> = path.split('.').filter(|segment| !segment.is_empty()).collect();
+    let segments: Vec<&str> = path
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     match segments.len() {
         0 => {}
         1 => out.extend_from_slice(&name_seg(segments[0])),

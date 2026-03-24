@@ -37,7 +37,8 @@ impl AcpiBlobBuilder {
     pub fn align(&mut self, alignment: usize) {
         let remainder = self.data.len() % alignment;
         if remainder != 0 {
-            self.data.resize(self.data.len() + (alignment - remainder), 0);
+            self.data
+                .resize(self.data.len() + (alignment - remainder), 0);
         }
     }
 
@@ -45,6 +46,17 @@ impl AcpiBlobBuilder {
         let offset = self.data.len() as u32;
         let length = bytes.len() as u32;
         self.data.extend_from_slice(&bytes);
+        self.tables.push(TableRef {
+            signature,
+            offset,
+            length,
+        });
+        offset
+    }
+
+    pub fn append_placeholder_table(&mut self, signature: [u8; 4], length: u32) -> u32 {
+        let offset = self.data.len() as u32;
+        self.data.resize(self.data.len() + length as usize, 0);
         self.tables.push(TableRef {
             signature,
             offset,
