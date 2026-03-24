@@ -17,12 +17,33 @@ pub struct PlatformConfig {
     pub ioapic_id: u8,
     pub ioapic_address: u32,
     pub ioapic_gsi_base: u32,
+    pub pci_irq_base: u32,
+    pub has_hpet: bool,
     pub pci_ecam_base: u64,
     pub pci_segment: u16,
     pub pci_bus_start: u8,
     pub pci_bus_end: u8,
     pub cpu_apic_ids: Vec<u32>,
     pub pci_root_uid: u8,
+    pub pci_devices: Vec<PciDeviceConfig>,
+    pub compat_lengths: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PciDeviceConfig {
+    pub driver: String,
+    pub id: Option<String>,
+    pub bus: Option<String>,
+    pub devfn: u8,
+}
+
+impl PciDeviceConfig {
+    pub fn is_root_bus_device(&self) -> bool {
+        self.bus
+            .as_deref()
+            .map(|bus| bus == "pcie.0")
+            .unwrap_or(true)
+    }
 }
 
 impl PlatformConfig {
@@ -46,12 +67,38 @@ impl PlatformConfig {
             ioapic_id: 0,
             ioapic_address: 0xfec0_0000,
             ioapic_gsi_base: 0,
+            pci_irq_base: 16,
+            has_hpet: false,
             pci_ecam_base: 0xb000_0000,
             pci_segment: 0,
             pci_bus_start: 0,
             pci_bus_end: 0xff,
             cpu_apic_ids,
             pci_root_uid: 0,
+            pci_devices: Vec::new(),
+            compat_lengths: true,
         }
+    }
+
+    pub fn target_dsdt_len(&self) -> Option<u32> {
+        if !self.compat_lengths {
+            return None;
+        }
+
+        let cpus = self.cpu_apic_ids.len() as u32;
+        let base = match cpus {
+            1 => 8_031,
+            2 => 8_028,
+            3..=16 => 8_029,
+            _ => 8_031,
+        };
+        let hpet_delta = if self.has_hpet { 142 } else { 0 };
+        let pci_delta = 17 * self.pci_devices.len() as u32;
+        Some(base + 86 * cpus + hpet_delta + pci_delta)
+    }
+
+    pub fn target_madt_len(&self) -> Option<u32> {
+        self.compat_lengths
+            .then_some(222 + 8 * self.cpu_apic_ids.len() as u32)
     }
 }

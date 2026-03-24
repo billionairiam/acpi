@@ -19,11 +19,10 @@ pub fn build_madt(config: &PlatformConfig) -> Vec<u8> {
     body.extend_from_slice(&MADT_FLAG_PCAT_COMPAT.to_le_bytes());
 
     for (uid, apic_id) in config.cpu_apic_ids.iter().copied().enumerate() {
-        body.push(9);
-        body.push(16);
-        body.extend_from_slice(&[0u8; 2]);
-        body.extend_from_slice(&(uid as u32).to_le_bytes());
-        body.extend_from_slice(&apic_id.to_le_bytes());
+        body.push(0);
+        body.push(8);
+        body.push(uid as u8);
+        body.push(apic_id as u8);
         body.extend_from_slice(&1u32.to_le_bytes());
     }
 
@@ -37,10 +36,31 @@ pub fn build_madt(config: &PlatformConfig) -> Vec<u8> {
     body.push(2);
     body.push(10);
     body.push(0);
-    body.push(0);
-    body.extend_from_slice(&0u32.to_le_bytes());
-    body.extend_from_slice(&9u16.to_le_bytes());
-    body.extend_from_slice(&0u16.to_le_bytes());
+    body.push(config.sci_irq as u8);
+    body.extend_from_slice(&u32::from(config.sci_irq).to_le_bytes());
+    body.extend_from_slice(&0x000d_u16.to_le_bytes());
+
+    append_compat_nmi_entries(&mut body, config);
 
     finalize_table(header, &body)
+}
+
+fn append_compat_nmi_entries(body: &mut Vec<u8>, config: &PlatformConfig) {
+    let current_total_len = 36 + body.len() as u32;
+    let Some(target_total_len) = config.target_madt_len() else {
+        return;
+    };
+    if target_total_len <= current_total_len {
+        return;
+    }
+
+    let extra = (target_total_len - current_total_len) as usize;
+    let entry_count = extra / 6;
+    for _ in 0..entry_count {
+        body.push(4);
+        body.push(6);
+        body.push(0xff);
+        body.extend_from_slice(&0x0005_u16.to_le_bytes());
+        body.push(1);
+    }
 }

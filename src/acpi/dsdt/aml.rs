@@ -24,6 +24,7 @@ pub enum AmlNode {
 #[derive(Debug, Clone)]
 pub enum AmlValue {
     Integer(u64),
+    String(String),
     EisaId(&'static str),
     Buffer(Vec<u8>),
     Package(Vec<AmlValue>),
@@ -77,6 +78,11 @@ impl AmlValue {
     pub fn encode(&self, out: &mut Vec<u8>) {
         match self {
             AmlValue::Integer(value) => encode_integer(*value, out),
+            AmlValue::String(value) => {
+                out.push(0x0d);
+                out.extend_from_slice(value.as_bytes());
+                out.push(0);
+            }
             AmlValue::EisaId(value) => {
                 out.push(0x0c);
                 out.extend_from_slice(&encode_eisa_id(value).to_le_bytes());
