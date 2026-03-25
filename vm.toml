@@ -1,0 +1,31 @@
+[qemu]
+binary = "/usr/bin/qemu-system-x86_64"
+
+[platform]
+machine = "q35"
+bios = "/usr/share/ovmf/OVMF.fd"
+accel = "kvm"
+nodefaults = true
+
+[cpu]
+model = "host"
+
+[cpu.topology]
+cpus = 64
+
+[memory]
+size = "2G"
+
+[machine.properties]
+kernel-irqchip = "split"
+hpet = false
+smm = false
+pic = true
+
+[defaults]
+serial = false
+parallel = false
+monitor = false
+vga = false
+floppy = false
+cdrom = false

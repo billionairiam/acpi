@@ -1,12 +1,11 @@
 mod acpi;
-mod vm;
 
 use std::env;
 use std::fs;
 
 use acpi::build_minimal_acpi;
 use acpi::config::PlatformConfig;
-use vm::VmConfig;
+use acpi::vm::VmConfig;
 
 fn main() {
     let mut args = env::args().skip(1);

@@ -8,6 +8,7 @@ pub mod madt;
 pub mod mcfg;
 pub mod rsdp;
 pub mod rsdt;
+pub mod vm;
 
 use std::collections::BTreeMap;
 
