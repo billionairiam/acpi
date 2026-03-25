@@ -56,6 +56,7 @@ fn optional_table_len(signature: [u8; 4], config: &PlatformConfig) -> u32 {
         b"NFIT" => 40,
         b"CEDT" => 36,
         b"WAET" => 40,
+        b"SSDT" => 202,
         _ => 36,
     }
 }
@@ -72,6 +73,15 @@ pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
 
     let madt = build_madt(config);
     let madt_offset = blob.append_table(*b"APIC", madt);
+
+    let vmgenid_offset = if config.has_vmgenid {
+        Some(blob.append_placeholder_table(
+            *b"SSDT",
+            optional_table_len(*b"SSDT", config), // 或单独 vmgenid_ssdt_len(config)
+        ))
+    } else {
+        None
+    };
 
     let hpet_offset = if config.has_hpet {
         Some(blob.append_placeholder_table(*b"HPET", optional_table_len(*b"HPET", config)))
@@ -141,6 +151,9 @@ pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
     let waet_offset = blob.append_placeholder_table(*b"WAET", optional_table_len(*b"WAET", config));
 
     let mut rsdt_entries = vec![blob.address_of(fadt_offset), blob.address_of(madt_offset)];
+    if let Some(vmgenid_offset) = vmgenid_offset {
+        rsdt_entries.push(blob.address_of(vmgenid_offset));
+    }
     if let Some(hpet_offset) = hpet_offset {
         rsdt_entries.push(blob.address_of(hpet_offset));
     }

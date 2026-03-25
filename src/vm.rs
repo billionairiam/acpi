@@ -34,6 +34,7 @@ impl VmConfig {
     pub fn platform_config(&self) -> PlatformConfig {
         let mut config = PlatformConfig::intel_tdx_q35(self.cpu.topology.cpus);
         config.has_hpet = self.machine.properties.bool("hpet").unwrap_or(false);
+        config.has_vmgenid = self.devices.iter().any(|device| device.is_vmgenid());
         config.has_mcfg = self.machine.properties.bool("mcfg").unwrap_or(true);
         config.has_numa = self.machine.properties.bool("numa").unwrap_or(false);
         config.has_slit = self
@@ -316,6 +317,10 @@ impl Device {
 
     fn is_cxl(&self) -> bool {
         self.driver.contains("cxl")
+    }
+
+    fn is_vmgenid(&self) -> bool {
+        self.driver.contains("vmgenid")
     }
 
     fn to_qemu_value(&self) -> String {
