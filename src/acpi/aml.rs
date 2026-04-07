@@ -806,6 +806,20 @@ impl<'a> Device<'a> {
     pub fn new(path: Path, children: Vec<&'a dyn Aml>) -> Self {
         Device { path, children }
     }
+
+    /// Create raw bytes representing a Device from its children in raw bytes
+    pub fn raw(path: Path, mut children: Vec<u8>) -> Vec<u8> {
+        let mut body = Vec::new();
+        path.to_aml_bytes(&mut body);
+        body.append(&mut children);
+
+        let mut bytes = Vec::new();
+        bytes.push(EXTOPPREFIX);
+        bytes.push(DEVICEOP);
+        bytes.extend_from_slice(create_pkg_length(body.len(), true).as_slice());
+        bytes.append(&mut body);
+        bytes
+    }
 }
 
 /// Scope object with its name and children objects in it.
