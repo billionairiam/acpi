@@ -73,11 +73,11 @@ impl PlatformConfig {
         let cpu_apic_ids = (0..cpu_count).collect();
         Self {
             blob_base_address: 0,
-            front_padding: 64,
+            front_padding: 0,
             oem_id: *b"TDXOEM",
             oem_table_id: *b"TDXQ35  ",
             oem_revision: 1,
-            creator_id: *b"RUST",
+            creator_id: *b"BXPC",
             creator_revision: 1,
             sci_irq: 9,
             pm_io_base: 0x1800,

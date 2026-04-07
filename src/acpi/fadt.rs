@@ -16,15 +16,7 @@ impl Gas {
             space_id: 1,
             bit_width,
             bit_offset: 0,
-            access_size: if bit_width <= 8 {
-                1
-            } else if bit_width <= 16 {
-                2
-            } else if bit_width <= 32 {
-                3
-            } else {
-                4
-            },
+            access_size: 0,
             address: u64::from(address),
         }
     }
@@ -44,7 +36,9 @@ const FADT_FLAG_SLP_BUTTON: u32 = 1 << 5;
 const FADT_FLAG_RTC_S4: u32 = 1 << 7;
 const FADT_FLAG_RESET_REG_SUP: u32 = 1 << 10;
 const FADT_FLAG_USE_PLATFORM_CLOCK: u32 = 1 << 15;
+const FADT_FLAG_FORCE_APIC_CLUSTER_MODEL: u32 = 1 << 18;
 const FADT_BODY_LEN: usize = 208;
+const FADT_OFFSET_FIRMWARE_CTRL: usize = 0;
 const FADT_OFFSET_DSDT: usize = 4;
 const FADT_OFFSET_SCI_INT: usize = 10;
 const FADT_OFFSET_PM1A_EVT_BLK: usize = 20;
@@ -71,9 +65,17 @@ const FADT_OFFSET_X_GPE0_BLK: usize = 184;
 const IAPC_BOOT_ARCH_8042: u16 = 1 << 1;
 
 pub fn build_fadt(config: &PlatformConfig, dsdt_address: u64) -> Vec<u8> {
+    build_fadt_with_facs(config, 0, dsdt_address)
+}
+
+pub fn build_fadt_with_facs(
+    config: &PlatformConfig,
+    facs_address: u64,
+    dsdt_address: u64,
+) -> Vec<u8> {
     let header = AcpiHeader {
         signature: *b"FACP",
-        revision: 6,
+        revision: 3,
         oem_id: config.oem_id,
         oem_table_id: config.oem_table_id,
         oem_revision: config.oem_revision,
@@ -82,6 +84,7 @@ pub fn build_fadt(config: &PlatformConfig, dsdt_address: u64) -> Vec<u8> {
     };
 
     let mut body = vec![0u8; FADT_BODY_LEN];
+    patch_u32(&mut body, FADT_OFFSET_FIRMWARE_CTRL, facs_address as u32);
     patch_u32(&mut body, FADT_OFFSET_DSDT, dsdt_address as u32);
     patch_u16(&mut body, FADT_OFFSET_SCI_INT, config.sci_irq);
     patch_u32(
@@ -116,7 +119,12 @@ pub fn build_fadt(config: &PlatformConfig, dsdt_address: u64) -> Vec<u8> {
             | FADT_FLAG_SLP_BUTTON
             | FADT_FLAG_RTC_S4
             | FADT_FLAG_RESET_REG_SUP
-            | FADT_FLAG_USE_PLATFORM_CLOCK,
+            | FADT_FLAG_USE_PLATFORM_CLOCK
+            | if config.cpu_apic_ids.len() > 8 {
+                FADT_FLAG_FORCE_APIC_CLUSTER_MODEL
+            } else {
+                0
+            },
     );
     patch_gas(
         &mut body,

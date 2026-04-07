@@ -7,11 +7,13 @@ pub mod facs;
 pub mod fadt;
 pub mod gas;
 pub mod header;
+pub mod hpet;
 pub mod madt;
 pub mod mcfg;
 pub mod rsdp;
 pub mod rsdt;
 pub mod vm;
+pub mod waet;
 
 extern crate alloc;
 
@@ -20,11 +22,14 @@ use std::collections::BTreeMap;
 use blob::{AcpiBlob, AcpiBlobBuilder};
 use config::{IommuKind, PlatformConfig, TpmKind};
 use dsdt::build_dsdt;
-use fadt::build_fadt;
+use facs::build_facs;
+use fadt::build_fadt_with_facs;
+use hpet::build_hpet;
 use madt::build_madt;
 use mcfg::build_mcfg;
 use rsdp::build_rsdp;
 use rsdt::build_rsdt;
+use waet::build_waet;
 
 #[macro_export]
 macro_rules! assert_same_size {
@@ -96,7 +101,6 @@ pub struct TableLayout {
 
 fn optional_table_len(signature: [u8; 4], config: &PlatformConfig) -> u32 {
     match &signature {
-        b"HPET" => 56,
         b"TCPA" => 50,
         b"TPM2" => 52,
         b"SRAT" => {
@@ -115,7 +119,6 @@ fn optional_table_len(signature: [u8; 4], config: &PlatformConfig) -> u32 {
         b"VIOT" => 48,
         b"NFIT" => 40,
         b"CEDT" => 36,
-        b"WAET" => 40,
         b"SSDT" => 202,
         _ => 36,
     }
@@ -123,12 +126,20 @@ fn optional_table_len(signature: [u8; 4], config: &PlatformConfig) -> u32 {
 
 pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
     let mut blob = AcpiBlobBuilder::new(config.blob_base_address);
-    blob.reserve_front(config.front_padding as usize);
+    if config.front_padding > 0 {
+        blob.reserve_front(config.front_padding as usize);
+    }
+
+    let facs_offset = blob.append_table(*b"FACS", build_facs());
 
     let dsdt = build_dsdt(config);
     let dsdt_offset = blob.append_table(*b"DSDT", dsdt);
 
-    let fadt = build_fadt(config, blob.address_of(dsdt_offset));
+    let fadt = build_fadt_with_facs(
+        config,
+        blob.address_of(facs_offset),
+        blob.address_of(dsdt_offset),
+    );
     let fadt_offset = blob.append_table(*b"FACP", fadt);
 
     let madt = build_madt(config);
@@ -141,7 +152,7 @@ pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
     };
 
     let hpet_offset = if config.has_hpet {
-        Some(blob.append_placeholder_table(*b"HPET", optional_table_len(*b"HPET", config)))
+        Some(blob.append_table(*b"HPET", build_hpet(config)))
     } else {
         None
     };
@@ -205,7 +216,7 @@ pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
         None
     };
 
-    let waet_offset = blob.append_placeholder_table(*b"WAET", optional_table_len(*b"WAET", config));
+    let waet_offset = blob.append_table(*b"WAET", build_waet(config));
 
     let mut rsdt_entries = vec![blob.address_of(fadt_offset), blob.address_of(madt_offset)];
     if let Some(vmgenid_offset) = vmgenid_offset {

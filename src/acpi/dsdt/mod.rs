@@ -1,5 +1,10 @@
 pub mod aml;
 
+use crate::acpi::Aml;
+use crate::acpi::aml::{
+    AmlString, Arg, Device, EISAName, Else, If, Interrupt, Method, Name, Package, PackageBuilder,
+    Path, ResourceTemplate, Return, Scope, Store, ZERO,
+};
 use crate::acpi::config::PlatformConfig;
 use crate::acpi::dsdt::aml::{AmlNode, AmlValue};
 use crate::acpi::header::{AcpiHeader, finalize_table};
@@ -7,7 +12,7 @@ use crate::acpi::header::{AcpiHeader, finalize_table};
 pub fn build_dsdt(config: &PlatformConfig) -> Vec<u8> {
     let header = AcpiHeader {
         signature: *b"DSDT",
-        revision: 2,
+        revision: 1,
         oem_id: config.oem_id,
         oem_table_id: config.oem_table_id,
         oem_revision: config.oem_revision,
@@ -46,30 +51,6 @@ fn pci0_children(config: &PlatformConfig) -> Vec<AmlNode> {
         AmlNode::Name {
             name: "_UID".to_string(),
             value: AmlValue::Integer(config.pci_root_uid.into()),
-        },
-        AmlNode::Name {
-            name: "_ADR".to_string(),
-            value: AmlValue::Integer(0),
-        },
-        AmlNode::Name {
-            name: "_SEG".to_string(),
-            value: AmlValue::Integer(config.pci_segment.into()),
-        },
-        AmlNode::Name {
-            name: "_BBN".to_string(),
-            value: AmlValue::Integer(config.pci_bus_start.into()),
-        },
-        AmlNode::Name {
-            name: "_STA".to_string(),
-            value: AmlValue::Integer(0x0f),
-        },
-        AmlNode::Name {
-            name: "_CRS".to_string(),
-            value: AmlValue::Buffer(resource_template(config)),
-        },
-        AmlNode::Name {
-            name: "_PRT".to_string(),
-            value: AmlValue::Package(build_pci_routing(config)),
         },
         AmlNode::Method {
             name: "_OSC".to_string(),
@@ -182,8 +163,7 @@ fn pci_adr(devfn: u8) -> u32 {
 }
 
 fn encode_dsdt_with_padding(config: &PlatformConfig, tree: &AmlNode) -> Vec<u8> {
-    let mut body = Vec::new();
-    tree.encode(&mut body);
+    let body = encode_dsdt_body(tree, 0);
 
     let Some(target_total_len) = config.target_dsdt_len() else {
         return body;
@@ -228,6 +208,9 @@ fn encode_dsdt_with_padding(config: &PlatformConfig, tree: &AmlNode) -> Vec<u8> 
 fn encode_dsdt_body(tree: &AmlNode, pad_len: usize) -> Vec<u8> {
     let mut body = Vec::new();
     tree.encode(&mut body);
+    body.extend_from_slice(&build_q35_irq_routing_bytes());
+    body.extend_from_slice(&build_root_sleep_bytes());
+    body.extend_from_slice(&build_gpe_scope_bytes());
     if pad_len > 0 {
         AmlNode::Name {
             name: "QPAD".to_string(),
@@ -236,6 +219,176 @@ fn encode_dsdt_body(tree: &AmlNode, pad_len: usize) -> Vec<u8> {
         .encode(&mut body);
     }
     body
+}
+
+fn build_q35_irq_routing_bytes() -> Vec<u8> {
+    let mut out = Vec::new();
+
+    append_aml(&Name::new(Path::new("PICF"), &ZERO), &mut out);
+
+    let pic_arg = Arg(0);
+    let picf_path = Path::new("PICF");
+    let pic_store = Store::new(&picf_path, &pic_arg);
+    let pic_method = Method::new(Path::new("_PIC"), 1, false, vec![&pic_store]);
+    append_aml(&pic_method, &mut out);
+
+    let prtp = Name::new(Path::new("PRTP"), &build_q35_routing_table("LNK"));
+    let prta = Name::new(Path::new("PRTA"), &build_q35_routing_table("GSI"));
+
+    let picf_ref = Path::new("PICF");
+    let prtp_ref = Path::new("PRTP");
+    let prta_ref = Path::new("PRTA");
+    let predicate = crate::acpi::aml::Equal::new(&picf_ref, &ZERO);
+    let ret_prtp = Return::new(&prtp_ref);
+    let ret_prta = Return::new(&prta_ref);
+    let if_ctx = If::new(&predicate, vec![&ret_prtp]);
+    let else_ctx = Else::new(vec![&ret_prta]);
+    let prt_method = Method::new(Path::new("_PRT"), 0, false, vec![&if_ctx, &else_ctx]);
+    let pci0_scope = Scope::new(Path::new("\\_SB_.PCI0"), vec![&prtp, &prta, &prt_method]);
+    append_aml(&pci0_scope, &mut out);
+
+    let mut sb_bytes = Vec::new();
+    for (name, uid, irq_name) in [
+        ("LNKA", 0u8, "PRQA"),
+        ("LNKB", 1, "PRQB"),
+        ("LNKC", 2, "PRQC"),
+        ("LNKD", 3, "PRQD"),
+        ("LNKE", 4, "PRQE"),
+        ("LNKF", 5, "PRQF"),
+        ("LNKG", 6, "PRQG"),
+        ("LNKH", 7, "PRQH"),
+    ] {
+        append_aml(
+            &Name::new(Path::new(irq_name), &(0x10u8 + uid)),
+            &mut sb_bytes,
+        );
+        sb_bytes.extend_from_slice(&build_link_device_bytes(name, uid));
+    }
+    for (name, uid, irq) in [
+        ("GSIA", 0x10u8, 0x10u32),
+        ("GSIB", 0x11, 0x11),
+        ("GSIC", 0x12, 0x12),
+        ("GSID", 0x13, 0x13),
+        ("GSIE", 0x14, 0x14),
+        ("GSIF", 0x15, 0x15),
+        ("GSIG", 0x16, 0x16),
+        ("GSIH", 0x17, 0x17),
+    ] {
+        sb_bytes.extend_from_slice(&build_gsi_link_device_bytes(name, uid, irq));
+    }
+    out.extend_from_slice(&Scope::raw(Path::new("\\_SB_"), sb_bytes));
+
+    out
+}
+
+fn build_root_sleep_bytes() -> Vec<u8> {
+    let s5_pkg = Package::new(vec![&ZERO, &ZERO, &ZERO, &ZERO]);
+    let s5 = Name::new(Path::new("_S5_"), &s5_pkg);
+
+    let mut out = Vec::new();
+    append_aml(&s5, &mut out);
+    out
+}
+
+fn build_gpe_scope_bytes() -> Vec<u8> {
+    let hid = Name::new(Path::new("_HID"), &AmlString::from("ACPI0006"));
+    let gpe = Scope::new(Path::new("_GPE"), vec![&hid]);
+
+    let mut out = Vec::new();
+    append_aml(&gpe, &mut out);
+    out
+}
+
+fn build_q35_routing_table(prefix: &str) -> PackageBuilder {
+    let mut pkg = PackageBuilder::new();
+    for slot in 0..0x18u32 {
+        let mut name = format!("{prefix}E");
+        append_q35_prt_entry(&mut pkg, slot, &mut name);
+    }
+
+    let mut name = format!("{prefix}E");
+    append_q35_prt_entry(&mut pkg, 0x18, &mut name);
+
+    for slot in 0x19..0x1eu32 {
+        let mut name = format!("{prefix}A");
+        append_q35_prt_entry(&mut pkg, slot, &mut name);
+    }
+
+    let mut name = format!("{prefix}E");
+    append_q35_prt_entry(&mut pkg, 0x1e, &mut name);
+    let mut name = format!("{prefix}A");
+    append_q35_prt_entry(&mut pkg, 0x1f, &mut name);
+
+    pkg
+}
+
+fn append_q35_prt_entry(pkg: &mut PackageBuilder, slot: u32, name: &mut String) {
+    let base = if name.as_bytes()[3] < b'E' {
+        b'A'
+    } else {
+        b'E'
+    };
+    let mut head = name.as_bytes()[3] - base;
+    for pin in 0..4u8 {
+        if head + pin > 3 {
+            head = pin.wrapping_neg();
+        }
+        let suffix = (base + head + pin) as char;
+        name.replace_range(3..4, &suffix.to_string());
+        let adr = (slot << 16) | 0xffff;
+        let pin_val = pin;
+        let link = Path::new(name);
+        let entry = Package::new(vec![&adr, &pin_val, &link, &ZERO]);
+        pkg.add_element(&entry);
+    }
+}
+
+fn build_link_device_bytes(name: &str, uid: u8) -> Vec<u8> {
+    let irq5 = Interrupt::new(true, false, false, true, 5);
+    let irq10 = Interrupt::new(true, false, false, true, 10);
+    let irq11 = Interrupt::new(true, false, false, true, 11);
+    let prs = ResourceTemplate::new(vec![&irq5, &irq10, &irq11]);
+    let hid = Name::new(Path::new("_HID"), &EISAName::new("PNP0C0F"));
+    let uid_name = Name::new(Path::new("_UID"), &uid);
+    let prs_name = Name::new(Path::new("_PRS"), &prs);
+    let sta_ret = Return::new(&0x0bu8);
+    let sta = Method::new(Path::new("_STA"), 0, false, vec![&sta_ret]);
+    let crs_ref = Path::new("_PRS");
+    let crs_ret = Return::new(&crs_ref);
+    let crs = Method::new(Path::new("_CRS"), 0, false, vec![&crs_ret]);
+    let dis = Method::new(Path::new("_DIS"), 0, false, vec![]);
+    let srs = Method::new(Path::new("_SRS"), 1, false, vec![]);
+    let dev = Device::new(
+        Path::new(name),
+        vec![&hid, &uid_name, &prs_name, &sta, &dis, &crs, &srs],
+    );
+
+    let mut out = Vec::new();
+    append_aml(&dev, &mut out);
+    out
+}
+
+fn build_gsi_link_device_bytes(name: &str, uid: u8, irq: u32) -> Vec<u8> {
+    let irq_res = Interrupt::new(true, false, false, true, irq);
+    let res = ResourceTemplate::new(vec![&irq_res]);
+    let hid = Name::new(Path::new("_HID"), &EISAName::new("PNP0C0F"));
+    let uid_name = Name::new(Path::new("_UID"), &uid);
+    let prs_name = Name::new(Path::new("_PRS"), &res);
+    let crs_name = Name::new(Path::new("_CRS"), &res);
+    let dis = Method::new(Path::new("_DIS"), 0, false, vec![]);
+    let srs = Method::new(Path::new("_SRS"), 1, false, vec![]);
+    let dev = Device::new(
+        Path::new(name),
+        vec![&hid, &uid_name, &prs_name, &crs_name, &dis, &srs],
+    );
+
+    let mut out = Vec::new();
+    append_aml(&dev, &mut out);
+    out
+}
+
+fn append_aml(value: &dyn Aml, out: &mut Vec<u8>) {
+    value.to_aml_bytes(out);
 }
 
 fn build_cpu_devices(config: &PlatformConfig) -> Vec<AmlNode> {
