@@ -1,14 +1,19 @@
+pub mod aml;
 pub mod blob;
 pub mod checksum;
 pub mod config;
 pub mod dsdt;
+pub mod facs;
 pub mod fadt;
+pub mod gas;
 pub mod header;
 pub mod madt;
 pub mod mcfg;
 pub mod rsdp;
 pub mod rsdt;
 pub mod vm;
+
+extern crate alloc;
 
 use std::collections::BTreeMap;
 
@@ -20,6 +25,60 @@ use madt::build_madt;
 use mcfg::build_mcfg;
 use rsdp::build_rsdp;
 use rsdt::build_rsdt;
+
+#[macro_export]
+macro_rules! assert_same_size {
+    ($x:ty, $y:ty) => {
+        const _: fn() = || {
+            let _ = core::mem::transmute::<$x, $y>;
+        };
+    };
+}
+
+/// This trait is used by the `Aml` trait as a sink for the actual
+/// bytecode. An application using this library must provide a type
+/// that implements this trait to receive the bytecode.
+pub trait AmlSink {
+    fn byte(&mut self, byte: u8);
+
+    fn word(&mut self, word: u16) {
+        self.vec(&word.to_le_bytes());
+    }
+
+    fn dword(&mut self, dword: u32) {
+        self.vec(&dword.to_le_bytes());
+    }
+
+    fn qword(&mut self, qword: u64) {
+        self.vec(&qword.to_le_bytes());
+    }
+
+    fn vec(&mut self, v: &[u8]) {
+        for byte in v {
+            self.byte(*byte);
+        }
+    }
+}
+
+/// The trait Aml can be implemented by ACPI objects or ACPI tables to
+/// translate itself into the AML raw data.
+pub trait Aml {
+    /// Serialize an ACPI object into AML bytecode using the provided
+    /// AmlSink object.
+    /// * `sink` - The sink used to receive the AML bytecode.
+    fn to_aml_bytes(&self, sink: &mut dyn AmlSink);
+}
+
+/// Simplify the library by treating Vec<u8> as a valid AmlSink.
+impl AmlSink for alloc::vec::Vec<u8> {
+    fn byte(&mut self, byte: u8) {
+        self.push(byte);
+    }
+
+    fn vec(&mut self, v: &[u8]) {
+        self.extend_from_slice(v);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BuiltBlob {
@@ -76,10 +135,7 @@ pub fn build_minimal_acpi(config: &PlatformConfig) -> BuiltBlob {
     let madt_offset = blob.append_table(*b"APIC", madt);
 
     let vmgenid_offset = if config.has_vmgenid {
-        Some(blob.append_placeholder_table(
-            *b"SSDT",
-            optional_table_len(*b"SSDT", config), // 或单独 vmgenid_ssdt_len(config)
-        ))
+        Some(blob.append_placeholder_table(*b"SSDT", optional_table_len(*b"SSDT", config)))
     } else {
         None
     };

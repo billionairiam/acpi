@@ -29,7 +29,7 @@ impl AcpiBlobBuilder {
 
     pub fn reserve_front(&mut self, len: usize) {
         if self.data.len() < len {
-            self.data.resize(len, 0);
+            self.data.resize(len, 1);
         }
     }
 

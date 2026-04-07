@@ -11,7 +11,7 @@ nodefaults = true
 model = "host"
 
 [cpu.topology]
-cpus = 64
+cpus = 16
 
 [memory]
 size = "2G"
@@ -29,3 +29,13 @@ monitor = false
 vga = false
 floppy = false
 cdrom = false
+
+
+[[netdevs]]
+id = "net0"
+type = "user"
+
+[[devices]]
+driver = "virtio-net-pci"
+netdev = "net0"
+romfile = ""

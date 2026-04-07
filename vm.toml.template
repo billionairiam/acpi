@@ -6,6 +6,7 @@ machine = "q35"
 bios = "/usr/share/ovmf/OVMF.fd"
 accel = "kvm"
 nodefaults = true
+nographic = true
 
 [cpu]
 model = "host"
@@ -20,12 +21,21 @@ size = "2G"
 kernel-irqchip = "split"
 hpet = false
 smm = false
-pic = true
+pic = false
 
 [defaults]
-serial = false
-parallel = false
-monitor = false
-vga = false
-floppy = false
-cdrom = false
+serial = true
+serial_target = "stdio"
+
+[[netdevs]]
+id = "net0"
+type = "user"
+
+[[devices]]
+driver = "virtio-net-pci"
+netdev = "net0"
+romfile = ""
+
+[[devices]]
+driver = "vmgenid"
+guid = "auto"
